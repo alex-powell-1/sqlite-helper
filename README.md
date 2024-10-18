@@ -1,3 +1,8 @@
+![SQLite Logo](https://www.sqlite.org/images/sqlite370_banner.gif)
+
+![Python Logo](https://www.python.org/static/img/python-logo.png)
+
+
 # SQLite Database Wrapper
 
 This project provides a simple wrapper around SQLite using Python's `sqlite3` module. It includes classes to represent database tables and columns, and provides methods to execute common SQL operations.
