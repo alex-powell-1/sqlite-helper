@@ -1,6 +1,7 @@
-![SQLite Logo](https://www.sqlite.org/images/sqlite370_banner.gif)
-
-![Python Logo](https://www.python.org/static/img/python-logo.png)
+<p align="center">
+  <img src="https://www.sqlite.org/images/sqlite370_banner.gif" alt="SQLite Logo" style="margin-right: 20px;">
+  <img src="https://www.python.org/static/img/python-logo.png" alt="Python Logo">
+</p>
 
 
 # SQLite Database Wrapper
