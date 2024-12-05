@@ -1,117 +1,152 @@
 import sqlite3
 
 
-class Column:
-    """Represents a column in a SQLite table"""
+class SQLite:
+    """Class for interacting with SQLite database. Includes method for replacing a table with a new schema."""
 
-    def __init__(self, name: str, col_type: str, constraints=""):
-        self.name = name
-        self.col_type = col_type
-        self.constraints = constraints
+    db = "sqlite.db"
 
-    def __str__(self):
-        return f"{self.name} {self.col_type} {self.constraints}".strip()
-
-
-class Table:
-    """Represents a SQLite table"""
-
-    def __init__(self, name, columns: Column):
-        self.name = name
-        self.columns = columns
-        self.columns_def = ",".join([str(column) for column in columns])
-
-
-class SQLiteDB:
-    """SQLite database wrapper"""
-
-    def __init__(self, db_name):
-        self.db_name = db_name
-        self.conn = None
-        self.cursor = None
-
-    def connect(self):
-        self.conn = sqlite3.connect(self.db_name)
+    def __init__(self):
+        self.conn = sqlite3.connect(self.db)
         self.cursor = self.conn.cursor()
 
-    def create_table(self, table: Table):
-        create_table_query = (
-            f"CREATE TABLE IF NOT EXISTS {table.name} ({table.columns_def})"
+    def connect(self):
+        self.conn = sqlite3.connect(self.db)
+        self.cursor = self.conn.cursor()
+
+    def create_table(self, table, columns):
+        self.cursor.execute(f"CREATE TABLE {table} ({columns});")
+        self.conn.commit()
+
+    def get_schema(self, table, obj=False):
+        self.cursor.execute(
+            f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table}';"
         )
-        return self.execute_query(create_table_query)
+        schema = self.cursor.fetchone()
 
-    def drop_table(self, table_name):
-        query = f"DROP TABLE IF EXISTS {table_name}"
-        return self.execute_query(query)
+        if schema:
+            return schema[0]
+        else:
+            return "Table not found."
 
-    def execute_query(self, query):
-        self.connect()
+    def copy_table(self, table_name: str, new_table_name: str):
+        schema = db.get_schema(table_name)
         try:
-            self.cursor.execute(query)
-        except sqlite3.Error as e:
-            print(f"Error: {e}")
-            print(f"Query: {query}")
-            self.close()
-            return Response([], 0, query)
-        except sqlite3.OperationalError as e:
-            print(f"OperationalError: {e}")
-            print(f"Query: {query}")
-            self.close()
-            return Response([], 0, query)
+            db.cursor.execute(schema.replace(table_name, new_table_name))
+            db.conn.commit()
+        except Exception as e:
+            if e.args[0] == f"table {new_table_name} already exists":
+                self.drop_table(new_table_name)
+                db.cursor.execute(schema.replace(table_name, new_table_name))
+                db.conn.commit()
+
+        else:
+            print(f"Table {new_table_name} created successfully.")
+
+            # Copy data from the old table to the new table
+            db.cursor.execute(
+                f"INSERT INTO {new_table_name} SELECT * FROM {table_name};"
+            )
+            db.conn.commit()
+            print(f"Data copied from {table_name} to {new_table_name} successfully.")
+        return schema
+
+    def replace_table(self, table_name: str):
+        # Save the schema to a file and ask the user to edit it
+        with open("schema.txt", "w") as f:
+            f.write(db.get_schema(table_name))
+        will_proceed = input(
+            "Current Schema has been exported.\nPlease change the schema.txt file to your liking and then proceed. Do you want to proceed? (Y/N): "
+        )
+        if will_proceed.lower() != "y":
+            return
+        # Read the new schema file
+        try:
+            with open("schema.txt", "r") as f:
+                schema = f.read()
+        except FileNotFoundError:
+            print(
+                "Schema file not found. Do not move the schema.txt file in the root. Try again."
+            )
+            return
         except Exception as e:
             print(f"Error: {e}")
-            print(f"Query: {query}")
-            self.close()
-            return Response([], 0, query)
+            return
 
-        rows = self.cursor.fetchall()
-        if self.cursor.rowcount > 0:
+        # Print the new schema and ask the user to confirm
+        print(f"Schema:\n\n{schema}\n")
+        will_proceed = input("Schema Preview: Do you want to proceed? (Y/N): ")
+        if will_proceed.lower() != "y":
+            return
+
+        # Create the temp table
+        self.copy_table(table_name, f"{table_name}_temp")
+        if input("Do you want to proceed with the changes? (Y/N): ").lower() != "y":
+            return
+        # Drop the original table. Current Data is saved in the temp table.
+        self.drop_table(table_name)
+        # Recreate the table with the new schema
+        self.cursor.execute(schema)
+        # Get columns from the new table and temp tables
+        self.cursor.execute(f"PRAGMA table_info({table_name});")
+        original_columns = [col[1] for col in self.cursor.fetchall()]
+        self.cursor.execute(f"PRAGMA table_info({table_name}_temp);")
+        temp_columns = [col[1] for col in self.cursor.fetchall()]
+        # Find common columns
+        common_columns = [col for col in original_columns if col in temp_columns]
+        # Construct the INSERT statement with common columns
+        columns_str = ", ".join(common_columns)
+        query = f"INSERT INTO {table_name} ({columns_str}) SELECT {columns_str} FROM {table_name}_temp;"
+        self.cursor.execute(query)
+        # Drop the temp table
+        self.drop_table(f"{table_name}_temp")
+        # Commit the changes
+        self.conn.commit()
+
+    def insert(self, table, columns, values):
+        self.cursor.execute(f"INSERT INTO {table} ({columns}) VALUES ({values});")
+        self.conn.commit()
+
+    def update(self, table, column, value, condition):
+        self.cursor.execute(f"UPDATE {table} SET {column} = {value} WHERE {condition};")
+        self.conn.commit()
+
+    def add_column(self, table, column: str):
+        self.cursor.execute(f"ALTER TABLE {table} ADD {column};")
+        self.conn.commit()
+
+    def delete_column(self, table: str, column: str):
+        try:
+            self.cursor.execute(f"ALTER TABLE {table} DROP COLUMN {column};")
+        except Exception as e:
+            print(f"Error: {e}")
+        else:
+            print(f"Column {column} deleted successfully.")
             self.conn.commit()
-        self.close()
-        return Response(rows, self.cursor.rowcount, query)
+
+    def rename_column(self, table: str, column: str, new_column: str):
+        try:
+            self.cursor.execute(
+                f"ALTER TABLE {table} RENAME COLUMN {column} TO {new_column};"
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error: {e}")
+        else:
+            print(f"Column {column} renamed to {new_column} successfully.")
+
+    def drop_table(self, table):
+        self.cursor.execute(f"DROP TABLE {table};")
+        self.conn.commit()
 
     def close(self):
-        if self.conn:
-            self.conn.close()
-
-
-class Response:
-    def __init__(self, rows, rowcount, query):
-        self.rows = rows
-        self.rowcount = rowcount
-        self.status_code = self.determine_status_code(query)
-
-    def __str__(self):
-        str = f"Status Code: {self.status_code}, Number of Rows: {self.rowcount}"
-        for row in self.rows:
-            str += f"\n{row}"
-        return str
-
-    def determine_status_code(self, query):
-        if query.strip().upper().startswith("SELECT"):
-            self.rowcount = len(self.rows)
-            if self.rowcount > 0:
-                return 200
-            return 404
-        else:
-            if self.rowcount > 0:
-                return 201
-            else:
-                self.rowcount = 0
-                return 404
+        self.conn.close()
 
 
 if __name__ == "__main__":
-    db = SQLiteDB("example.db")
-    response = db.execute_query(
-        'INSERT INTO users (name, age, email) VALUES ("John", 30, "john@gmail.com")'
-    )
-    print(response)
-
-    response = db.execute_query("SELECT * FROM users")
-    print(response)
-
-    update = db.execute_query('UPDATE users SET name="John Doe" WHERE name="John"')
-
-    response = db.execute_query("SELECT * FROM users")
-    print(response)
+    # Example Usage
+    db = SQLite()
+    db.replace_table("appointment_services")
+    # This will send the schema of the table to the schema.txt file
+    # The user can edit the schema and then proceed
+    db.close()
