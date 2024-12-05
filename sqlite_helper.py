@@ -81,8 +81,6 @@ class SQLite:
 
         # Create the temp table
         self.copy_table(table_name, f"{table_name}_temp")
-        if input("Do you want to proceed with the changes? (Y/N): ").lower() != "y":
-            return
         # Drop the original table. Current Data is saved in the temp table.
         self.drop_table(table_name)
         # Recreate the table with the new schema
